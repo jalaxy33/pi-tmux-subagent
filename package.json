@@ -1,14 +1,27 @@
 {
   "name": "@jalaxy33/pi-tmux-subagent",
   "version": "0.1.0",
-  "private": true,
-  "keywords": ["pi-package"],
+  "description": "Observable Pi subagents that run in their own tmux session.",
+  "keywords": ["pi-package", "pi", "subagent", "tmux"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jalaxy33/pi-tmux-subagent.git"
+  },
   "type": "module",
   "bin": {
     "subagent": "./subagent.ts"
   },
+  "files": ["index.ts", "commands.ts", "shared.ts", "subagent.ts", "skills"],
   "pi": {
     "extensions": ["./index.ts"]
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

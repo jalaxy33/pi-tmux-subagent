@@ -10,6 +10,8 @@ Forked from [badlogic/pi-subagent](https://github.com/badlogic/pi-subagent). Obs
 ## Install
 
 ```sh
+pi install npm:@jalaxy33/pi-tmux-subagent
+# or from source
 pi install git:github.com/jalaxy33/pi-tmux-subagent
 ```
 
