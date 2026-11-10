@@ -2,8 +2,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DynamicBorder, type ExtensionAPI, type ExtensionContext, keyHint } from "@earendil-works/pi-coding-agent";
+import { defineTool, DynamicBorder, type ExtensionAPI, type ExtensionContext, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text, type TUI } from "@earendil-works/pi-tui";
+import { Type, type Static } from "typebox";
+import { runSubagentCommand } from "./commands.ts";
 import {
 	effectiveRunState,
 	inboxDir,
@@ -31,10 +33,131 @@ function displayState(metadata: RunMetadata): string {
 	return effectiveRunState(metadata).padEnd(8);
 }
 
+const subagentParameters = Type.Object({
+	action: Type.Union(
+		[
+			Type.Literal("spawn"),
+			Type.Literal("list"),
+			Type.Literal("status"),
+			Type.Literal("wait"),
+			Type.Literal("send"),
+			Type.Literal("rename"),
+			Type.Literal("stop"),
+		],
+		{ description: "Command to run" },
+	),
+	handle: Type.Optional(
+		Type.String({ description: "Subagent handle from spawn. Required for every action except spawn and list." }),
+	),
+	name: Type.Optional(
+		Type.String({ description: "spawn: display name, 1 to 64 characters. rename: the new name." }),
+	),
+	prompt: Type.Optional(Type.String({ description: "spawn: task text for the subagent's first user turn." })),
+	files: Type.Optional(
+		Type.Array(Type.String(), { description: "spawn: files to hand to the subagent as @-references." }),
+	),
+	provider: Type.Optional(Type.String({ description: "spawn: model provider. Defaults to the calling session's." })),
+	model: Type.Optional(Type.String({ description: "spawn: model id. Defaults to the calling session's." })),
+	thinking: Type.Optional(Type.String({ description: "spawn: thinking level. Defaults to the calling session's." })),
+	cwd: Type.Optional(Type.String({ description: "spawn: working directory. Defaults to the calling session's." })),
+	tools: Type.Optional(
+		Type.String({ description: "spawn: comma-separated tool allowlist, for example read,grep,find,ls." }),
+	),
+	noExtensions: Type.Optional(
+		Type.Boolean({ description: "spawn: disable extension discovery except the control bridge." }),
+	),
+	noSkills: Type.Optional(Type.Boolean({ description: "spawn: disable skills." })),
+	noPromptTemplates: Type.Optional(Type.Boolean({ description: "spawn: disable prompt templates." })),
+	noContextFiles: Type.Optional(Type.Boolean({ description: "spawn: ignore repository instruction files." })),
+	message: Type.Optional(Type.String({ description: "send: message for the subagent." })),
+	followUp: Type.Optional(
+		Type.Boolean({ description: "send: queue the message after the current turn instead of steering it." }),
+	),
+	timeoutSeconds: Type.Optional(Type.Number({ description: "wait: timeout in seconds. Defaults to 1800." })),
+});
+
+type SubagentToolParams = Static<typeof subagentParameters>;
+
+const subagentTool = defineTool({
+	name: "subagent",
+	label: "Subagent",
+	description: `Manage observable Pi subagents. Each subagent runs in its own tmux session with its own Pi session and context, so it can investigate or implement work without crowding this conversation.
+
+Actions:
+- spawn: start a subagent; returns its handle and tmux attach command.
+- list: show the subagents spawned by this session with their state.
+- status: show one subagent's state.
+- wait: block until the subagent finishes its turn and return its final message.
+- send: steer a running subagent, or queue a follow-up with followUp.
+- rename: change the display name.
+- stop: terminate the subagent and delete its transcript.
+
+Spawn for work that benefits from an independent context, then wait for the result. Stop every subagent when its work is no longer needed.`,
+	promptSnippet: "spawn and manage observable Pi subagents with their own session and tmux terminal",
+	promptGuidelines: [
+		"Use the subagent tool for independent reviews, investigations, and delegated implementation instead of doing everything in one context. Stop subagents you no longer need.",
+	],
+	parameters: subagentParameters,
+	async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		const result = await runSubagentCommand(
+			buildArgv(params),
+			{
+				sessionId: ctx.sessionManager.getSessionId(),
+				sessionFile: ctx.sessionManager.getSessionFile(),
+				provider: ctx.model?.provider,
+				model: ctx.model?.id,
+				thinking: ctx.thinkingLevel,
+				cwd: ctx.cwd,
+			},
+			signal,
+		);
+		return {
+			content: [{ type: "text" as const, text: result.output }],
+			details: { action: params.action, ok: result.ok },
+			isError: !result.ok,
+		};
+	},
+});
+
+function buildArgv(params: SubagentToolParams): string[] {
+	const argv: string[] = [params.action];
+	switch (params.action) {
+		case "spawn":
+			if (params.name) argv.push("--name", params.name);
+			if (params.provider) argv.push("--provider", params.provider);
+			if (params.model) argv.push("--model", params.model);
+			if (params.thinking) argv.push("--thinking", params.thinking);
+			if (params.cwd) argv.push("--cwd", params.cwd);
+			if (params.tools) argv.push("--tools", params.tools);
+			if (params.noExtensions) argv.push("--no-extensions");
+			if (params.noSkills) argv.push("--no-skills");
+			if (params.noPromptTemplates) argv.push("--no-prompt-templates");
+			if (params.noContextFiles) argv.push("--no-context-files");
+			for (const file of params.files ?? []) argv.push("--file", file);
+			if (params.prompt) argv.push("--prompt", params.prompt);
+			return argv;
+		case "list":
+			return argv;
+		case "rename":
+			if (!params.handle || !params.name) throw new Error("rename requires handle and name");
+			return [...argv, params.handle, params.name];
+		case "send":
+			if (!params.handle || !params.message) throw new Error("send requires handle and message");
+			return [...argv, params.handle, ...(params.followUp ? ["--follow-up"] : []), params.message];
+		case "wait":
+			if (!params.handle) throw new Error("wait requires a handle");
+			return [...argv, params.handle, ...(params.timeoutSeconds != null ? ["--timeout", String(params.timeoutSeconds)] : [])];
+		default:
+			if (!params.handle) throw new Error(`${params.action} requires a handle`);
+			return [...argv, params.handle];
+	}
+}
+
 export default function subagentExtension(pi: ExtensionAPI) {
 	const runDir = process.env.PI_SUBAGENT_RUN_DIR;
 	if (!runDir) {
 		pi.on("resources_discover", () => ({ skillPaths: [join(packageDir, "skills")] }));
+		pi.registerTool(subagentTool);
 	}
 
 	pi.registerCommand("subagent", {
