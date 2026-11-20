@@ -166,7 +166,7 @@ function discardRun(runDir: string): void {
 }
 
 /**
- * Delete runs that no session can reach anymore: unreadable metadata, or a parent session that is gone.
+ * Delete runs that no session can reach anymore: corrupt metadata, or a parent session that is gone.
  * Runs whose parent session still exists are kept even when their child died, because the transcript is
  * the result that session asked for.
  */
@@ -176,18 +176,27 @@ export function pruneOrphanRuns(currentSessionId: string): void {
 	for (const entry of readdirSync(root, { withFileTypes: true })) {
 		if (!entry.isDirectory()) continue;
 		const runDir = join(root, entry.name);
+		if (!existsSync(metadataPath(runDir))) continue;
 		const metadata = readMetadata(runDir);
 		if (!metadata) {
-			discardRun(runDir);
+			// Unreachable, unless a newer plugin wrote it and would recognise its own schema.
+			if (!hasNewerSchema(runDir)) discardRun(runDir);
 			continue;
 		}
 		if (metadata.parentSessionId === currentSessionId) continue;
-		if (metadata.parentSessionFile) {
-			if (!existsSync(metadata.parentSessionFile)) discardRun(runDir);
-			continue;
-		}
-		// Without a parent session file the parent was ephemeral and cannot come back to list its runs.
+		// An ephemeral parent (--no-session) records no file, and nothing tells us whether it still runs.
+		if (!metadata.parentSessionFile || existsSync(metadata.parentSessionFile)) continue;
 		discardRun(runDir);
+	}
+}
+
+function hasNewerSchema(runDir: string): boolean {
+	try {
+		const value: unknown = JSON.parse(readFileSync(metadataPath(runDir), "utf8"));
+		const version = (value as { version?: unknown } | null)?.version;
+		return typeof version === "number" && version > 2;
+	} catch {
+		return false;
 	}
 }
 
