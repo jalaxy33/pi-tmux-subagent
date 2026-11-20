@@ -93,7 +93,7 @@ export function runHandle(runDir: string): string {
 }
 
 export function runTmuxSession(metadata: RunMetadata): string {
-	return `pi-subagent-${runHandle(metadata.runDir)}`;
+	return tmuxSessionForHandle(runHandle(metadata.runDir));
 }
 
 export function runDisplayName(metadata: RunMetadata): string {
@@ -152,6 +152,43 @@ export async function waitForRunShutdown(runDir: string, timeoutMs = 2000): Prom
 
 export function removeRunDir(runDir: string): void {
 	rmSync(runDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
+function tmuxSessionForHandle(handle: string): string {
+	return `pi-subagent-${handle}`;
+}
+
+/** Kill whatever is left of a run, then delete its directory. */
+function discardRun(runDir: string): void {
+	const session = tmuxSessionForHandle(basename(runDir));
+	if (tmuxSessionExists(session)) spawnSync("tmux", ["kill-session", "-t", session], { stdio: "ignore" });
+	removeRunDir(runDir);
+}
+
+/**
+ * Delete runs that no session can reach anymore: unreadable metadata, or a parent session that is gone.
+ * Runs whose parent session still exists are kept even when their child died, because the transcript is
+ * the result that session asked for.
+ */
+export function pruneOrphanRuns(currentSessionId: string): void {
+	const root = getRunsDir();
+	if (!existsSync(root)) return;
+	for (const entry of readdirSync(root, { withFileTypes: true })) {
+		if (!entry.isDirectory()) continue;
+		const runDir = join(root, entry.name);
+		const metadata = readMetadata(runDir);
+		if (!metadata) {
+			discardRun(runDir);
+			continue;
+		}
+		if (metadata.parentSessionId === currentSessionId) continue;
+		if (metadata.parentSessionFile) {
+			if (!existsSync(metadata.parentSessionFile)) discardRun(runDir);
+			continue;
+		}
+		// Without a parent session file the parent was ephemeral and cannot come back to list its runs.
+		discardRun(runDir);
+	}
 }
 
 export function tmuxSessionExists(session: string): boolean {

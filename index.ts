@@ -12,6 +12,7 @@ import {
 	launchRun,
 	listRuns,
 	listTmuxSessions,
+	pruneOrphanRuns,
 	readMetadata,
 	removeRunDir,
 	runDisplayName,
@@ -282,6 +283,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		};
 
 		pi.on("session_start", (_event, ctx) => {
+			pruneOrphanRuns(ctx.sessionManager.getSessionId());
 			// Relaunch children that were suspended when this session was last quit or switched away from.
 			for (const run of listRuns(ctx.sessionManager.getSessionId())) {
 				if (!run.suspended || tmuxSessionExists(runTmuxSession(run))) continue;
