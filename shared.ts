@@ -155,6 +155,13 @@ export function tmuxSessionExists(session: string): boolean {
 	return spawnSync("tmux", ["has-session", "-t", session], { stdio: "ignore" }).status === 0;
 }
 
+/** All tmux session names; empty when tmux is missing, broken, or has no server running. */
+export function listTmuxSessions(): ReadonlySet<string> {
+	const result = spawnSync("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+	if (result.error || result.status !== 0) return new Set();
+	return new Set(result.stdout.split("\n").filter((name) => name.length > 0));
+}
+
 /** Why subagents cannot run here, or undefined when tmux is usable. */
 export function tmuxUnavailableReason(): string | undefined {
 	if (process.platform === "win32") {
@@ -220,10 +227,10 @@ export function launchRun(metadata: RunMetadata, initialArgs: string[] = []): vo
 	if (result.status !== 0) throw new Error(result.stderr.trim() || "Failed to create tmux session");
 }
 
-export function effectiveRunState(metadata: RunMetadata): RunState {
+export function effectiveRunState(metadata: RunMetadata, sessions?: ReadonlySet<string>): RunState {
 	if (
 		(metadata.state === "starting" || metadata.state === "busy" || metadata.state === "idle") &&
-		!tmuxSessionExists(metadata.tmuxSession)
+		!(sessions ?? listTmuxSessions()).has(metadata.tmuxSession)
 	) {
 		return "exited";
 	}

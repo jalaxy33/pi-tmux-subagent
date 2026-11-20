@@ -11,11 +11,11 @@ import {
 	inboxDir,
 	launchRun,
 	listRuns,
+	listTmuxSessions,
 	readMetadata,
 	removeRunDir,
 	runDisplayName,
 	type InboxMessage,
-	type RunMetadata,
 	tmuxSessionExists,
 	tmuxUnavailableReason,
 	updateMetadata,
@@ -28,10 +28,6 @@ function isInboxMessage(value: unknown): value is InboxMessage {
 	if (typeof value !== "object" || value === null) return false;
 	const message = value as Record<string, unknown>;
 	return typeof message.message === "string" && (message.delivery === "auto" || message.delivery === "followUp");
-}
-
-function displayState(metadata: RunMetadata): string {
-	return effectiveRunState(metadata).padEnd(8);
 }
 
 const subagentParameters = Type.Object({
@@ -158,15 +154,17 @@ function registerAttachCommand(pi: ExtensionAPI): void {
 	pi.registerCommand("subagent", {
 		description: "Select and attach to a subagent spawned by this session",
 		handler: async (_args, ctx) => {
-			const runs = listRuns(ctx.sessionManager.getSessionId()).filter((run) => effectiveRunState(run) !== "exited");
-			if (runs.length === 0) {
+			const runs = listRuns(ctx.sessionManager.getSessionId());
+			const sessions = runs.length === 0 ? undefined : listTmuxSessions();
+			const activeRuns = runs.filter((run) => effectiveRunState(run, sessions) !== "exited");
+			if (activeRuns.length === 0) {
 				ctx.ui.notify("No active subagents spawned by this session", "info");
 				return;
 			}
 
-			const items: SelectItem[] = runs.map((run) => ({
+			const items: SelectItem[] = activeRuns.map((run) => ({
 				value: run.handle,
-				label: `${runDisplayName(run)}  ${displayState(run)}  ${run.provider}/${run.model}  ${run.thinking}`,
+				label: `${runDisplayName(run)}  ${effectiveRunState(run, sessions).padEnd(8)}  ${run.provider}/${run.model}  ${run.thinking}`,
 			}));
 			let tui: TUI | undefined;
 			const selected = await ctx.ui.custom<string | undefined>((customTui, theme, _keybindings, done) => {
@@ -256,8 +254,10 @@ export default function subagentExtension(pi: ExtensionAPI) {
 
 		const refreshWidget = (): void => {
 			if (!widgetContext) return;
-			const activeRuns = listRuns(widgetContext.sessionManager.getSessionId())
-				.map((run) => ({ run, state: effectiveRunState(run) }))
+			const runs = listRuns(widgetContext.sessionManager.getSessionId());
+			const sessions = runs.length === 0 ? undefined : listTmuxSessions();
+			const activeRuns = runs
+				.map((run) => ({ run, state: effectiveRunState(run, sessions) }))
 				.filter(({ state }) => state !== "exited");
 			if (activeRuns.length === 0) {
 				widgetContext.ui.setWidget("subagents", undefined);

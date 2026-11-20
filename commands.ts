@@ -10,6 +10,7 @@ import {
 	inboxDir,
 	launchRun,
 	listRuns,
+	listTmuxSessions,
 	readLatestAssistant,
 	readMetadata,
 	removeRunDir,
@@ -248,7 +249,8 @@ function sendSubagent(args: string[]): string {
 	const message = messageParts.join(" ").trim();
 	if (!message) fail("send requires a message");
 	const metadata = getRun(handle);
-	if (!tmuxSessionExists(metadata.tmuxSession)) fail(`${handle} is not running`);
+	const sessions = listTmuxSessions();
+	if (!sessions.has(metadata.tmuxSession)) fail(`${handle} is not running`);
 
 	const queueDir = inboxDir(metadata.runDir);
 	mkdirSync(queueDir, { recursive: true, mode: 0o700 });
@@ -259,7 +261,7 @@ function sendSubagent(args: string[]): string {
 	writeFileSync(temporary, `${JSON.stringify(payload)}\n`, { encoding: "utf8", mode: 0o600 });
 	renameSync(temporary, target);
 
-	const state = effectiveRunState(metadata);
+	const state = effectiveRunState(metadata, sessions);
 	const verb = followUp && state === "busy" ? "Queued follow-up for" : state === "idle" ? "Prompted" : "Steered";
 	return `${verb} ${runDisplayName(metadata)}\n`;
 }
@@ -310,7 +312,8 @@ async function waitSubagent(args: string[], signal?: AbortSignal): Promise<Comma
 			const broken = message.stopReason === "error" || message.stopReason === "aborted";
 			return { output: `${handle} finished\n\n${assistantText(message)}\n`, ok: !broken };
 		}
-		await delay(500, signal);
+		// Each tick starts tmux, and a turn takes seconds anyway, so poll slowly.
+		await delay(1000, signal);
 	}
 	fail(`Timed out after ${timeoutSeconds}s waiting for ${handle}`);
 }
@@ -329,10 +332,11 @@ function listSubagents(args: string[], context: CommandContext): string {
 	if (args.length !== 0) usage();
 	const runs = listRuns(context.sessionId);
 	if (runs.length === 0) return "No subagents\n";
+	const sessions = listTmuxSessions();
 	return runs
 		.map(
 			(metadata) =>
-				`${runDisplayName(metadata)}  ${effectiveRunState(metadata).padEnd(8)}  ${metadata.provider}/${metadata.model}  ${metadata.thinking}\n`,
+				`${runDisplayName(metadata)}  ${effectiveRunState(metadata, sessions).padEnd(8)}  ${metadata.provider}/${metadata.model}  ${metadata.thinking}\n`,
 		)
 		.join("");
 }
