@@ -15,6 +15,8 @@ import {
 	readMetadata,
 	removeRunDir,
 	runDisplayName,
+	runHandle,
+	runTmuxSession,
 	type InboxMessage,
 	tmuxSessionExists,
 	tmuxUnavailableReason,
@@ -163,7 +165,7 @@ function registerAttachCommand(pi: ExtensionAPI): void {
 			}
 
 			const items: SelectItem[] = activeRuns.map((run) => ({
-				value: run.handle,
+				value: runHandle(run.runDir),
 				label: `${runDisplayName(run)}  ${effectiveRunState(run, sessions).padEnd(8)}  ${run.provider}/${run.model}  ${run.thinking}`,
 			}));
 			let tui: TUI | undefined;
@@ -205,27 +207,27 @@ function registerAttachCommand(pi: ExtensionAPI): void {
 				};
 			});
 			if (!selected || !tui) return;
-			const run = runs.find((candidate) => candidate.handle === selected);
+			const run = runs.find((candidate) => runHandle(candidate.runDir) === selected);
 			if (!run) return;
 
 			if (process.env.TMUX) {
 				const exitCode = await new Promise<number | null>((resolveExit) => {
-					const child = spawn("tmux", ["switch-client", "-t", run.tmuxSession], { stdio: "inherit" });
+					const child = spawn("tmux", ["switch-client", "-t", runTmuxSession(run)], { stdio: "inherit" });
 					child.on("error", () => resolveExit(null));
 					child.on("close", resolveExit);
 				});
-				if (exitCode !== 0) ctx.ui.notify(`Could not switch to ${run.handle}`, "error");
+				if (exitCode !== 0) ctx.ui.notify(`Could not switch to ${runHandle(run.runDir)}`, "error");
 				return;
 			}
 
 			tui.stop();
 			try {
 				const exitCode = await new Promise<number | null>((resolveExit) => {
-					const child = spawn("tmux", ["attach-session", "-t", run.tmuxSession], { stdio: "inherit" });
+					const child = spawn("tmux", ["attach-session", "-t", runTmuxSession(run)], { stdio: "inherit" });
 					child.on("error", () => resolveExit(null));
 					child.on("close", resolveExit);
 				});
-				if (exitCode !== 0) process.stderr.write(`Could not attach to ${run.handle}\n`);
+				if (exitCode !== 0) process.stderr.write(`Could not attach to ${runHandle(run.runDir)}\n`);
 			} finally {
 				tui.start();
 				tui.requestRender(true);
@@ -267,7 +269,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			const visible = activeRuns.slice(0, 5).map(({ run, state }) => {
 				const color =
 					state === "busy" ? "warning" : state === "idle" ? "success" : state === "error" ? "error" : "muted";
-				return widgetContext!.ui.theme.fg(color, `${run.name ?? run.handle}:${state}`);
+				return widgetContext!.ui.theme.fg(color, `${run.name ?? runHandle(run.runDir)}:${state}`);
 			});
 			if (activeRuns.length > visible.length) {
 				visible.push(widgetContext.ui.theme.fg("muted", `+${activeRuns.length - visible.length}`));
@@ -282,7 +284,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		pi.on("session_start", (_event, ctx) => {
 			// Relaunch children that were suspended when this session was last quit or switched away from.
 			for (const run of listRuns(ctx.sessionManager.getSessionId())) {
-				if (!run.suspended || tmuxSessionExists(run.tmuxSession)) continue;
+				if (!run.suspended || tmuxSessionExists(runTmuxSession(run))) continue;
 				if (!existsSync(run.sessionFile)) {
 					removeRunDir(run.runDir);
 					continue;
@@ -313,12 +315,12 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			// Suspend running children: stop the process but keep transcript and metadata so resuming this
 			// session relaunches them. Children that already exited on their own are discarded.
 			for (const run of listRuns(ctx.sessionManager.getSessionId())) {
-				if (!tmuxSessionExists(run.tmuxSession)) {
+				if (!tmuxSessionExists(runTmuxSession(run))) {
 					if (!run.suspended) removeRunDir(run.runDir);
 					continue;
 				}
 				updateMetadata(run.runDir, { suspended: true });
-				spawnSync("tmux", ["kill-session", "-t", run.tmuxSession], { stdio: "ignore" });
+				spawnSync("tmux", ["kill-session", "-t", runTmuxSession(run)], { stdio: "ignore" });
 				await waitForRunShutdown(run.runDir);
 			}
 		});
@@ -333,7 +335,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 	const syncSessionName = (): void => {
 		const metadata = readMetadata(runDir);
 		if (!metadata) return;
-		const next = `subagent ${metadata.name ?? metadata.handle}`;
+		const next = `subagent ${metadata.name ?? runHandle(metadata.runDir)}`;
 		if (next === sessionName) return;
 		pi.setSessionName(next);
 		sessionName = next;

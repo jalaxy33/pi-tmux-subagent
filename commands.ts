@@ -15,6 +15,8 @@ import {
 	readMetadata,
 	removeRunDir,
 	runDisplayName,
+	runHandle,
+	runTmuxSession,
 	isValidRunName,
 	type InboxMessage,
 	type RunMetadata,
@@ -175,7 +177,6 @@ function spawnSubagent(args: string[], context: CommandContext): string {
 	const handle = generateHandle();
 	const runDir = runDirForHandle(handle);
 	const sessionFile = join(runDir, "session.jsonl");
-	const tmuxSession = `pi-subagent-${handle}`;
 	mkdirSync(inboxDir(runDir), { recursive: true, mode: 0o700 });
 	writeFileSync(sessionFile, "", { mode: 0o600 });
 
@@ -189,12 +190,10 @@ function spawnSubagent(args: string[], context: CommandContext): string {
 
 	const now = new Date().toISOString();
 	const metadata: RunMetadata = {
-		version: 1,
-		handle,
+		version: 2,
 		name,
 		parentSessionId: context.sessionId,
 		parentSessionFile: context.sessionFile,
-		tmuxSession,
 		runDir,
 		sessionFile,
 		cwd,
@@ -218,13 +217,13 @@ function spawnSubagent(args: string[], context: CommandContext): string {
 		throw error;
 	}
 
-	return `Spawned ${runDisplayName(metadata)}\nState: busy\nAttach: tmux attach -t ${tmuxSession}\n`;
+	return `Spawned ${runDisplayName(metadata)}\nState: busy\nAttach: tmux attach -t ${runTmuxSession(metadata)}\n`;
 }
 
 function statusSubagent(args: string[]): string {
 	if (args.length !== 1) usage();
 	const metadata = getRun(args[0]);
-	return `${runDisplayName(metadata)}: ${effectiveRunState(metadata)} (${metadata.provider}/${metadata.model}, ${metadata.thinking})\nAttach: tmux attach -t ${metadata.tmuxSession}\n`;
+	return `${runDisplayName(metadata)}: ${effectiveRunState(metadata)} (${metadata.provider}/${metadata.model}, ${metadata.thinking})\nAttach: tmux attach -t ${runTmuxSession(metadata)}\n`;
 }
 
 function renameSubagent(args: string[]): string {
@@ -232,7 +231,7 @@ function renameSubagent(args: string[]): string {
 	const metadata = getRun(args[0]);
 	const name = normalizeRunName(args[1]);
 	const updated = updateMetadata(metadata.runDir, { name });
-	if (!updated) fail(`Could not rename subagent: ${metadata.handle}`);
+	if (!updated) fail(`Could not rename subagent: ${runHandle(metadata.runDir)}`);
 	return `Renamed ${runDisplayName(updated)}\n`;
 }
 
@@ -250,7 +249,7 @@ function sendSubagent(args: string[]): string {
 	if (!message) fail("send requires a message");
 	const metadata = getRun(handle);
 	const sessions = listTmuxSessions();
-	if (!sessions.has(metadata.tmuxSession)) fail(`${handle} is not running`);
+	if (!sessions.has(runTmuxSession(metadata))) fail(`${handle} is not running`);
 
 	const queueDir = inboxDir(metadata.runDir);
 	mkdirSync(queueDir, { recursive: true, mode: 0o700 });
@@ -321,8 +320,8 @@ async function waitSubagent(args: string[], signal?: AbortSignal): Promise<Comma
 async function stopSubagent(args: string[]): Promise<string> {
 	if (args.length !== 1) usage();
 	const metadata = getRun(args[0]);
-	const wasRunning = tmuxSessionExists(metadata.tmuxSession);
-	spawnSync("tmux", ["kill-session", "-t", metadata.tmuxSession], { stdio: "ignore" });
+	const wasRunning = tmuxSessionExists(runTmuxSession(metadata));
+	spawnSync("tmux", ["kill-session", "-t", runTmuxSession(metadata)], { stdio: "ignore" });
 	if (wasRunning) await waitForRunShutdown(metadata.runDir);
 	removeRunDir(metadata.runDir);
 	return `Stopped ${runDisplayName(metadata)}\n`;

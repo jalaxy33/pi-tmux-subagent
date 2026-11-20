@@ -11,18 +11,16 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 export type RunState = "starting" | "busy" | "idle" | "exited" | "error";
 
 export interface RunMetadata {
-	version: 1;
-	handle: string;
+	version: 2;
 	name?: string;
 	parentSessionId?: string;
 	parentSessionFile?: string;
 	childSessionId?: string;
-	tmuxSession: string;
 	runDir: string;
 	sessionFile: string;
 	cwd: string;
@@ -90,8 +88,18 @@ export function isValidRunName(value: unknown): value is string {
 	);
 }
 
+/** A run is identified by its directory name; the handle is not stored separately. */
+export function runHandle(runDir: string): string {
+	return basename(runDir);
+}
+
+export function runTmuxSession(metadata: RunMetadata): string {
+	return `pi-subagent-${runHandle(metadata.runDir)}`;
+}
+
 export function runDisplayName(metadata: RunMetadata): string {
-	return metadata.name ? `${metadata.name} (${metadata.handle})` : metadata.handle;
+	const handle = runHandle(metadata.runDir);
+	return metadata.name ? `${metadata.name} (${handle})` : handle;
 }
 
 export function readMetadata(runDir: string): RunMetadata | undefined {
@@ -100,16 +108,13 @@ export function readMetadata(runDir: string): RunMetadata | undefined {
 		if (typeof value !== "object" || value === null) return undefined;
 		const metadata = value as Partial<RunMetadata>;
 		if (
-			metadata.version !== 1 ||
-			typeof metadata.handle !== "string" ||
+			metadata.version !== 2 ||
 			(metadata.name !== undefined && !isValidRunName(metadata.name)) ||
-			typeof metadata.tmuxSession !== "string" ||
-			typeof metadata.sessionFile !== "string" ||
-			typeof metadata.runDir !== "string"
+			typeof metadata.sessionFile !== "string"
 		) {
 			return undefined;
 		}
-		return metadata as RunMetadata;
+		return { ...(metadata as RunMetadata), runDir };
 	} catch {
 		return undefined;
 	}
@@ -129,8 +134,7 @@ export function updateMetadata(runDir: string, patch: Partial<RunMetadata>): Run
 	const next: RunMetadata = {
 		...current,
 		...patch,
-		version: 1,
-		handle: current.handle,
+		version: 2,
 		runDir: current.runDir,
 		updatedAt: new Date().toISOString(),
 	};
@@ -199,7 +203,7 @@ export function launchRun(metadata: RunMetadata, initialArgs: string[] = []): vo
 			"new-session",
 			"-d",
 			"-s",
-			metadata.tmuxSession,
+			runTmuxSession(metadata),
 			"-x",
 			"120",
 			"-y",
@@ -230,7 +234,7 @@ export function launchRun(metadata: RunMetadata, initialArgs: string[] = []): vo
 export function effectiveRunState(metadata: RunMetadata, sessions?: ReadonlySet<string>): RunState {
 	if (
 		(metadata.state === "starting" || metadata.state === "busy" || metadata.state === "idle") &&
-		!(sessions ?? listTmuxSessions()).has(metadata.tmuxSession)
+		!(sessions ?? listTmuxSessions()).has(runTmuxSession(metadata))
 	) {
 		return "exited";
 	}
