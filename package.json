@@ -16,6 +16,9 @@
   "pi": {
     "extensions": ["./index.ts"]
   },
+  "scripts": {
+    "test": "node --test test/"
+  },
   "engines": {
     "node": ">=22.19.0"
   },
