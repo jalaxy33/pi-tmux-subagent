@@ -314,6 +314,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			if (event.reason === "reload") return;
 			// Suspend running children: stop the process but keep transcript and metadata so resuming this
 			// session relaunches them. Children that already exited on their own are discarded.
+			const stopping: string[] = [];
 			for (const run of listRuns(ctx.sessionManager.getSessionId())) {
 				if (!tmuxSessionExists(runTmuxSession(run))) {
 					if (!run.suspended) removeRunDir(run.runDir);
@@ -321,8 +322,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
 				}
 				updateMetadata(run.runDir, { suspended: true });
 				spawnSync("tmux", ["kill-session", "-t", runTmuxSession(run)], { stdio: "ignore" });
-				await waitForRunShutdown(run.runDir);
+				stopping.push(run.runDir);
 			}
+			await Promise.all(stopping.map((dir) => waitForRunShutdown(dir)));
 		});
 		return;
 	}
@@ -394,7 +396,6 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		const metadata = readMetadata(runDir);
 		if (!metadata) return;
 		updateMetadata(runDir, {
-			childSessionId: ctx.sessionManager.getSessionId(),
 			sessionFile: ctx.sessionManager.getSessionFile() ?? metadata.sessionFile,
 			state: ctx.isIdle() ? "idle" : "busy",
 			suspended: undefined,

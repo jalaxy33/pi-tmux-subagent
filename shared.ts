@@ -20,7 +20,6 @@ export interface RunMetadata {
 	name?: string;
 	parentSessionId?: string;
 	parentSessionFile?: string;
-	childSessionId?: string;
 	runDir: string;
 	sessionFile: string;
 	cwd: string;

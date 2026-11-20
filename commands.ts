@@ -223,7 +223,8 @@ function spawnSubagent(args: string[], context: CommandContext): string {
 function statusSubagent(args: string[]): string {
 	if (args.length !== 1) usage();
 	const metadata = getRun(args[0]);
-	return `${runDisplayName(metadata)}: ${effectiveRunState(metadata)} (${metadata.provider}/${metadata.model}, ${metadata.thinking})\nAttach: tmux attach -t ${runTmuxSession(metadata)}\n`;
+	const error = metadata.error ? `\nError: ${metadata.error}` : "";
+	return `${runDisplayName(metadata)}: ${effectiveRunState(metadata)} (${metadata.provider}/${metadata.model}, ${metadata.thinking})${error}\nAttach: tmux attach -t ${runTmuxSession(metadata)}\n`;
 }
 
 function renameSubagent(args: string[]): string {
@@ -333,10 +334,11 @@ function listSubagents(args: string[], context: CommandContext): string {
 	if (runs.length === 0) return "No subagents\n";
 	const sessions = listTmuxSessions();
 	return runs
-		.map(
-			(metadata) =>
-				`${runDisplayName(metadata)}  ${effectiveRunState(metadata, sessions).padEnd(8)}  ${metadata.provider}/${metadata.model}  ${metadata.thinking}\n`,
-		)
+		.map((metadata) => {
+			const state = effectiveRunState(metadata, sessions);
+			const error = state === "error" && metadata.error ? `  ${metadata.error}` : "";
+			return `${runDisplayName(metadata)}  ${state.padEnd(8)}  ${metadata.provider}/${metadata.model}  ${metadata.thinking}${error}\n`;
+		})
 		.join("");
 }
 
