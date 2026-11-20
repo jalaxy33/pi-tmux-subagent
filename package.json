@@ -1,6 +1,6 @@
 {
   "name": "@jalaxy33/pi-tmux-subagent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Observable Pi subagents that run in their own tmux session.",
   "keywords": ["pi-package", "pi", "subagent", "tmux"],
   "license": "MIT",
@@ -10,7 +10,7 @@
   },
   "type": "module",
   "bin": {
-    "subagent": "./subagent.ts"
+    "subagent": "subagent.ts"
   },
   "files": ["index.ts", "commands.ts", "shared.ts", "subagent.ts", "skills"],
   "pi": {

@@ -7,6 +7,8 @@ Forked from [badlogic/pi-subagent](https://github.com/badlogic/pi-subagent). Obs
 - Pi
 - tmux
 
+Windows is not supported, because tmux has no native Windows build. Run Pi inside WSL2 instead. When tmux is missing, the extension registers no tool or command and reports the reason on session start.
+
 ## Install
 
 ```sh

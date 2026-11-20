@@ -17,6 +17,7 @@ import {
 	type InboxMessage,
 	type RunMetadata,
 	tmuxSessionExists,
+	tmuxUnavailableReason,
 	updateMetadata,
 	waitForRunShutdown,
 } from "./shared.ts";
@@ -155,6 +156,14 @@ function buildArgv(params: SubagentToolParams): string[] {
 
 export default function subagentExtension(pi: ExtensionAPI) {
 	const runDir = process.env.PI_SUBAGENT_RUN_DIR;
+	const unavailable = runDir ? undefined : tmuxUnavailableReason();
+	if (unavailable) {
+		// Nothing here can work without tmux, so register no tool or skill and explain once per session.
+		pi.on("session_start", (_event, ctx) => {
+			if (ctx.hasUI) ctx.ui.notify(unavailable, "warning");
+		});
+		return;
+	}
 	if (!runDir) {
 		pi.on("resources_discover", () => ({ skillPaths: [join(packageDir, "skills")] }));
 		pi.registerTool(subagentTool);

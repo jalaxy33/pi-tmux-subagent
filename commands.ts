@@ -18,6 +18,7 @@ import {
 	type InboxMessage,
 	type RunMetadata,
 	tmuxSessionExists,
+	tmuxUnavailableReason,
 	updateMetadata,
 	waitForRunShutdown,
 	writeMetadata,
@@ -92,6 +93,8 @@ function generateHandle(): string {
 
 function spawnSubagent(args: string[], context: CommandContext): string {
 	if (process.env.PI_SUBAGENT_RUN_DIR) fail("Nested subagents are disabled");
+	const unavailable = tmuxUnavailableReason();
+	if (unavailable) fail(unavailable);
 	let name: string | undefined;
 	let provider = context.provider;
 	let model = context.model;

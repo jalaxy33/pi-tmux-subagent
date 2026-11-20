@@ -155,6 +155,26 @@ export function tmuxSessionExists(session: string): boolean {
 	return spawnSync("tmux", ["has-session", "-t", session], { stdio: "ignore" }).status === 0;
 }
 
+/** Why subagents cannot run here, or undefined when tmux is usable. */
+export function tmuxUnavailableReason(): string | undefined {
+	if (process.platform === "win32") {
+		return "Subagents need tmux, which has no native Windows build. Run Pi inside WSL2 or on macOS/Linux.";
+	}
+	const probe = spawnSync("tmux", ["-V"], { encoding: "utf8", timeout: 5000 });
+	const code = (probe.error as NodeJS.ErrnoException | undefined)?.code;
+	if (code === "ENOENT") {
+		return "Subagents need tmux, but it is not installed or not on PATH. Install tmux, then run /reload.";
+	}
+	if (probe.error) {
+		return `Subagents need tmux, but tmux cannot run here: ${probe.error.message}`;
+	}
+	if (probe.status !== 0) {
+		const detail = probe.stderr.trim() || `exit code ${probe.status}`;
+		return `Subagents need tmux, but "tmux -V" failed: ${detail}`;
+	}
+	return undefined;
+}
+
 /** Start the child pi process for a run in its tmux session. `initialArgs` are only passed on first spawn. */
 export function launchRun(metadata: RunMetadata, initialArgs: string[] = []): void {
 	let launcher = "pi";
@@ -196,6 +216,7 @@ export function launchRun(metadata: RunMetadata, initialArgs: string[] = []): vo
 		],
 		{ encoding: "utf8" },
 	);
+	if (result.error) throw new Error(result.error.message);
 	if (result.status !== 0) throw new Error(result.stderr.trim() || "Failed to create tmux session");
 }
 
