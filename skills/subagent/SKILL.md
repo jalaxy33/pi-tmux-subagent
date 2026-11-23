@@ -5,7 +5,17 @@ description: Spawn and communicate with observable Pi subagents for second opini
 
 # Subagent
 
-Use the `subagent` tool to delegate work to a separate Pi process with its own context and tmux session. Managed subagents cannot spawn nested subagents, and this skill is not loaded into their sessions.
+Use the subagent tool to delegate work to a separate Pi process with its own context and tmux session. Managed subagents cannot spawn nested subagents, and this skill is not loaded into their sessions.
+
+## Calling it
+
+Call `subagent({ action: ... })` directly when the tool is in your tool list. When it is not, this session reaches it through codemode instead:
+
+```js
+await tools.subagent({ action: "spawn", name: "review", prompt: "Check the current diff" });
+```
+
+`await searchTools("subagent")` confirms it is callable, and `await describeTool("subagent")` returns its full signature. The JSON examples below are the arguments in both cases, and `spawn` returns the handle you pass to later calls.
 
 ## Spawn
 

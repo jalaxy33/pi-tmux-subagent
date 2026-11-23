@@ -6,6 +6,7 @@ import { defineTool, DynamicBorder, type ExtensionAPI, type ExtensionContext, ke
 import { Container, type SelectItem, SelectList, Text, type TUI } from "@earendil-works/pi-tui";
 import { Type, type Static } from "typebox";
 import { runSubagentCommand } from "./commands.ts";
+import { describeSubagentConfig, readSubagentConfig } from "./config.ts";
 import {
 	effectiveRunState,
 	inboxDir,
@@ -26,6 +27,8 @@ import {
 } from "./shared.ts";
 
 const packageDir = dirname(fileURLToPath(import.meta.url));
+// The exposure decides how the tool is registered, so it has to be read before defineTool runs.
+const subagentConfig = readSubagentConfig();
 
 function isInboxMessage(value: unknown): value is InboxMessage {
 	if (typeof value !== "object" || value === null) return false;
@@ -80,6 +83,8 @@ type SubagentToolParams = Static<typeof subagentParameters>;
 
 const subagentTool = defineTool({
 	name: "subagent",
+	// "deferred" keeps the tool out of the system prompt; codemode scripts still reach it.
+	exposure: subagentConfig.exposure,
 	label: "Subagent",
 	description: `Manage observable Pi subagents. Each subagent runs in its own tmux session with its own Pi session and context, so it can investigate or implement work without crowding this conversation.
 
@@ -155,8 +160,12 @@ function buildArgv(params: SubagentToolParams): string[] {
 
 function registerAttachCommand(pi: ExtensionAPI): void {
 	pi.registerCommand("subagent", {
-		description: "Select and attach to a subagent spawned by this session",
-		handler: async (_args, ctx) => {
+		description: "Select and attach to a subagent, or show the tool configuration",
+		handler: async (args, ctx) => {
+			if (args.trim().toLowerCase() === "config") {
+				ctx.ui.notify(describeSubagentConfig(subagentConfig, ctx.cwd), "info");
+				return;
+			}
 			const runs = listRuns(ctx.sessionManager.getSessionId());
 			const sessions = runs.length === 0 ? undefined : listTmuxSessions();
 			const activeRuns = runs.filter((run) => effectiveRunState(run, sessions) !== "exited");
@@ -251,6 +260,18 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		pi.on("resources_discover", () => ({ skillPaths: [join(packageDir, "skills")] }));
 		pi.registerTool(subagentTool);
 		registerAttachCommand(pi);
+
+		if (subagentConfig.exposure === "deferred") {
+			// A deferred tool is unreachable without codemode or tool_search, so declare it instead of
+			// handing the session a tool it cannot call. Activating at session start keeps the tool set
+			// stable for the whole session.
+			pi.on("session_start", () => {
+				const reachable = ["codemode", "tool_search"].some((name) =>
+					pi.getAllTools().some((tool) => tool.name === name),
+				);
+				if (!reachable) pi.setActiveTools([...pi.getActiveTools(), subagentTool.name]);
+			});
+		}
 
 		let widgetTimer: ReturnType<typeof setInterval> | undefined;
 		let widgetContext: ExtensionContext | undefined;

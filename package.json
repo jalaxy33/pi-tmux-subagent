@@ -12,7 +12,7 @@
   "bin": {
     "subagent": "subagent.ts"
   },
-  "files": ["index.ts", "commands.ts", "shared.ts", "subagent.ts", "skills"],
+  "files": ["index.ts", "config.ts", "commands.ts", "shared.ts", "subagent.ts", "skills"],
   "pi": {
     "extensions": ["./index.ts"]
   },
